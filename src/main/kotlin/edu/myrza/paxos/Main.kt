@@ -21,9 +21,7 @@ import io.vertx.core.Vertx
 *
 * */
 
-// [done] Task #1 basic producer consumer in vertx
-// Task #2 unique identifier generation for proposers
-// [done] Task #3 order of deployment
+// TODO: Failure handling
 
 fun main() {
     val vertx = Vertx.vertx()
