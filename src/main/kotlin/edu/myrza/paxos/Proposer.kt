@@ -1,12 +1,13 @@
 package edu.myrza.paxos
 
 import edu.myrza.paxos.dto.DtoAcceptRequest
-import edu.myrza.paxos.dto.DtoAcceptResponse
+import edu.myrza.paxos.dto.DtoFailResponse
 import edu.myrza.paxos.dto.DtoPromiseRequest
 import edu.myrza.paxos.dto.DtoPromiseResponse
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.eventbus.Message
+import io.vertx.core.eventbus.ReplyException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -31,17 +32,10 @@ class Proposer(
             }
             .let { Future.join(it) }
             .compose { promisesFuture ->
-                if (promisesFuture.failed()) {
-                    println("Proposer $name failed (system error) at promises step")
-                    return@compose promisesFuture
-                }
-
-                val promised = promisesFuture.list<Message<String>>()
-                value = promised
+                value = promisesFuture.list<Message<String>>()
                     .map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
-                    .map { it as DtoPromiseResponse.Success }
                     .filter { it.value != null }
-                    .maxByOrNull { it.round }
+                    .maxByOrNull { it.accepted }
                     ?.value ?: value
 
                 acceptors
@@ -49,26 +43,24 @@ class Proposer(
                         println("Proposer $name proposed [ Acc: $it, N: $round, V: $value ]")
                         eb.request<String>("paxos.acceptor.$it.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
                     }
-                    .let {
-                        proposeFuture -> Future.join(proposeFuture)
-                    }
-            }.onSuccess { proposesFuture ->
-                if (proposesFuture.failed()) {
-                    println("Proposer $name failed (system error) at proposes step")
-                    return@onSuccess
+                    .let { proposeFuture -> Future.join(proposeFuture) }
+            }
+            .onFailure {
+                // In Vert.x, a failed Future in a chain (via compose, andThen, or similar)
+                // automatically stops the chain unless you handle the failure with recover or onFailure
+                // and return a successful future.
+                if (it !is ReplyException) {
+                    return@onFailure
                 }
 
-                val accepted = proposesFuture.list<Message<String>>()
-                val allAccepted = accepted
-                    .map { Json.decodeFromString<DtoAcceptResponse>(it.body()) }
-                    .all { it.status == DtoAcceptResponse.Status.SUCCESS }
-
-                if (!allAccepted) {
-                    println("Proposer $name failed")
-                    return@onSuccess
+                val fail = Json.decodeFromString<DtoFailResponse>(it.message!!)
+                when (fail.type) {
+                    DtoFailResponse.Type.PROMISED_HIGHER -> { } // try again
                 }
-
+            }
+            .onSuccess {
                 println("Proposer $name succeeded [ N: $round, V: $value ]")
+                // TODO: cancel timer
             }
     }
 
