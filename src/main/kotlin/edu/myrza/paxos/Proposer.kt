@@ -1,9 +1,10 @@
 package edu.myrza.paxos
 
-import edu.myrza.paxos.dto.DtoAccept
-import edu.myrza.paxos.dto.DtoLastAccepted
+import edu.myrza.paxos.dto.DtoAcceptRequest
+import edu.myrza.paxos.dto.DtoAcceptResponse
+import edu.myrza.paxos.dto.DtoPromiseRequest
+import edu.myrza.paxos.dto.DtoPromiseResponse
 import io.vertx.core.AbstractVerticle
-import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.core.eventbus.Message
 import kotlinx.serialization.encodeToString
@@ -11,7 +12,7 @@ import kotlinx.serialization.json.Json
 
 class Proposer(
     private val name: String,
-    private val value: String,
+    private var value: String,
     private val acceptors: Set<String>
 ): AbstractVerticle() {
 
@@ -25,28 +26,49 @@ class Proposer(
         acceptors
             .map {
                 println("Proposer $name ask promise from Acceptor $it [ N: $round]")
-                eb.request<String>("paxos.acceptor.$it.promise", round)
+                val request = Json.encodeToString(DtoPromiseRequest(round = round))
+                eb.request<String>("paxos.acceptor.$it.promise", request)
             }
             .let { Future.join(it) }
             .compose { promisesFuture ->
                 if (promisesFuture.failed()) {
-                    println("Failed...")
+                    println("Proposer $name failed (system error) at promises step")
                     return@compose promisesFuture
                 }
 
-                val accepted = promisesFuture.list<Message<String>>()
-                val value = accepted.map { Json.decodeFromString<DtoLastAccepted.Ok>(it.body()) }.filter { it.value != null }.maxByOrNull { it.round }?.value ?: value
+                val promised = promisesFuture.list<Message<String>>()
+                value = promised
+                    .map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
+                    .map { it as DtoPromiseResponse.Success }
+                    .filter { it.value != null }
+                    .maxByOrNull { it.round }
+                    ?.value ?: value
 
                 acceptors
                     .map {
                         println("Proposer $name proposed [ Acc: $it, N: $round, V: $value ]")
-                        eb.request<String>("paxos.acceptor.$it.accept", Json.encodeToString(DtoAccept(round = round, value = value)))
+                        eb.request<String>("paxos.acceptor.$it.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
                     }
                     .let {
-                        proposesFuture -> Future.join(proposesFuture)
+                        proposeFuture -> Future.join(proposeFuture)
                     }
-            }.onSuccess {
-                println("Done!")
+            }.onSuccess { proposesFuture ->
+                if (proposesFuture.failed()) {
+                    println("Proposer $name failed (system error) at proposes step")
+                    return@onSuccess
+                }
+
+                val accepted = proposesFuture.list<Message<String>>()
+                val allAccepted = accepted
+                    .map { Json.decodeFromString<DtoAcceptResponse>(it.body()) }
+                    .all { it.status == DtoAcceptResponse.Status.SUCCESS }
+
+                if (!allAccepted) {
+                    println("Proposer $name failed")
+                    return@onSuccess
+                }
+
+                println("Proposer $name succeeded [ N: $round, V: $value ]")
             }
     }
 

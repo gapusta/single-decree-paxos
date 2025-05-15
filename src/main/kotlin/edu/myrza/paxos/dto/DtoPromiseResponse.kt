@@ -4,15 +4,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed class DtoLastAccepted {
+sealed class DtoPromiseResponse {
     @Serializable
-    @SerialName("ok")
-    data class Ok (
+    @SerialName("success")
+    data class Success (
         val round: Long,
         val value: String?
-    ): DtoLastAccepted()
+    ): DtoPromiseResponse()
 
     @Serializable
     @SerialName("fail")
-    data object Fail : DtoLastAccepted()
+    data object Fail : DtoPromiseResponse()
 }

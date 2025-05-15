@@ -1,7 +1,9 @@
 package edu.myrza.paxos
 
-import edu.myrza.paxos.dto.DtoAccept
-import edu.myrza.paxos.dto.DtoLastAccepted
+import edu.myrza.paxos.dto.DtoAcceptRequest
+import edu.myrza.paxos.dto.DtoAcceptResponse
+import edu.myrza.paxos.dto.DtoPromiseRequest
+import edu.myrza.paxos.dto.DtoPromiseResponse
 import io.vertx.core.AbstractVerticle
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -14,31 +16,35 @@ class Acceptor(val name: String): AbstractVerticle() {
 
     override fun start() {
         // promise
-        vertx.eventBus().consumer<Long>("paxos.acceptor.$name.promise") { message ->
-            val round = message.body()
-            if (promised < round) {
-                promised = round
+        vertx.eventBus().consumer<String>("paxos.acceptor.$name.promise") { message ->
+            val request = Json.decodeFromString<DtoPromiseRequest>(message.body())
+            val round = request.round
+
+            val result = if (promised < round) {
                 println("Acceptor $name promised [Np: $promised, Na: $accepted, Va: $value]")
-                message.reply(Json.encodeToString(DtoLastAccepted.Ok(round = accepted, value = value)))
+                promised = round
+                DtoPromiseResponse.Success(round = accepted, value = value)
             } else {
-                message.reply(DtoLastAccepted.Fail)
+                DtoPromiseResponse.Fail
             }
+
+            message.reply(Json.encodeToString(result))
         }
 
         // accept
         vertx.eventBus().consumer<String>("paxos.acceptor.$name.accept") { message ->
-            val msg = Json.decodeFromString<DtoAccept>(message.body())
+            val request = Json.decodeFromString<DtoAcceptRequest>(message.body())
 
-            if (promised <= msg.round) {
-                accepted = msg.round
-                value = msg.value
-                println("Acceptor $name accepted [N: $promised, new Na: $accepted, new Va: $value]")
-
-                // TODO: What should acceptors return at the end of phase 2?
-                message.reply("Accepted")
+            val result = if (promised <= request.round) {
+                println("Acceptor $name accepted [N: $promised, old : [Na: $accepted, Va: $value], new : [Na: ${request.round}, Va: ${request.value}]]")
+                accepted = request.round
+                value = request.value
+                DtoAcceptResponse.success()
             } else {
-                message.reply("Failed")
+                DtoAcceptResponse.fail()
             }
+
+            message.reply(Json.encodeToString(result))
         }
     }
 
