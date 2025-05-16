@@ -4,6 +4,9 @@ import edu.myrza.paxos.dto.DtoAcceptRequest
 import edu.myrza.paxos.dto.DtoFailResponse
 import edu.myrza.paxos.dto.DtoPromiseRequest
 import edu.myrza.paxos.dto.DtoPromiseResponse
+import edu.myrza.paxos.exception.ErrorCodes
+import edu.myrza.paxos.util.GlobalRoundGenerator
+import edu.myrza.paxos.util.Logger
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.eventbus.Message
@@ -18,52 +21,55 @@ class Proposer(
 ): AbstractVerticle() {
 
     override fun start() {
-        val eb = vertx.eventBus()
-        val round = round()
+        Logger.log("Init $name")
+        vertx.setPeriodic(1000) { timerId ->
+            val eb = vertx.eventBus()
+            val round = GlobalRoundGenerator.round()
+            val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
 
-        val majority = acceptors.size / 2 + 1
-        val acceptors = acceptors.shuffled().take(majority)
+            majority
+                .map { acceptor ->
+                    Logger.log("$name->$acceptor promise($round)")
+                    val request = Json.encodeToString(DtoPromiseRequest(round = round))
+                    eb.request<String>("paxos.acceptor.$acceptor.promise", request)
+                }
+                .let { Future.join(it) }
+                .compose { promisesFuture ->
+                    value = promisesFuture.list<Message<String>>()
+                        .map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
+                        .filter { it.value != null }
+                        .maxByOrNull { it.accepted }
+                        ?.value ?: value
 
-        acceptors
-            .map {
-                println("Proposer $name ask promise from Acceptor $it [ N: $round]")
-                val request = Json.encodeToString(DtoPromiseRequest(round = round))
-                eb.request<String>("paxos.acceptor.$it.promise", request)
-            }
-            .let { Future.join(it) }
-            .compose { promisesFuture ->
-                value = promisesFuture.list<Message<String>>()
-                    .map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
-                    .filter { it.value != null }
-                    .maxByOrNull { it.accepted }
-                    ?.value ?: value
-
-                acceptors
-                    .map {
-                        println("Proposer $name proposed [ Acc: $it, N: $round, V: $value ]")
-                        eb.request<String>("paxos.acceptor.$it.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
+                    majority
+                        .map { acceptor ->
+                            Logger.log("$name->$acceptor propose($round, $value)")
+                            eb.request<String>("paxos.acceptor.$acceptor.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
+                        }
+                        .let { proposeFuture -> Future.join(proposeFuture) }
+                }
+                .onFailure {
+                    // In Vert.x, a failed Future in a chain (via compose, andThen, or similar)
+                    // automatically stops the chain unless you handle the failure with recover or onFailure
+                    // and return a successful future.
+                    if (it !is ReplyException || it.failureCode() != ErrorCodes.CUSTOM_ERROR) {
+                        Logger.log("Unhandled exception: ${it.message}")
+                        return@onFailure
                     }
-                    .let { proposeFuture -> Future.join(proposeFuture) }
-            }
-            .onFailure {
-                // In Vert.x, a failed Future in a chain (via compose, andThen, or similar)
-                // automatically stops the chain unless you handle the failure with recover or onFailure
-                // and return a successful future.
-                if (it !is ReplyException) {
-                    return@onFailure
-                }
 
-                val fail = Json.decodeFromString<DtoFailResponse>(it.message!!)
-                when (fail.type) {
-                    DtoFailResponse.Type.PROMISED_HIGHER -> { } // try again
+                    val fail = Json.decodeFromString<DtoFailResponse>(it.message!!)
+                    when (fail.type) {
+                        DtoFailResponse.Type.PROMISED_HIGHER -> {
+                            Logger.log("$name got disrupted [ N: $round ]")
+                            // try again
+                        }
+                    }
                 }
-            }
-            .onSuccess {
-                println("Proposer $name succeeded [ N: $round, V: $value ]")
-                // TODO: cancel timer
-            }
+                .onSuccess {
+                    Logger.log("Proposer $name succeeded [ N: $round, V: $value ]")
+                    vertx.cancelTimer(timerId)
+                }
+        }
     }
-
-    private fun round(): Long { return 1L }
 
 }

@@ -1,6 +1,8 @@
 package edu.myrza.paxos
 
 import edu.myrza.paxos.dto.*
+import edu.myrza.paxos.exception.ErrorCodes
+import edu.myrza.paxos.util.Logger
 import io.vertx.core.AbstractVerticle
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -12,14 +14,15 @@ class Acceptor(val name: String): AbstractVerticle() {
     private var value: String? = null
 
     override fun start() {
-        // promise
+        Logger.log("Init $name")
+
         vertx.eventBus().consumer<String>("paxos.acceptor.$name.promise") { message ->
             val request = Json.decodeFromString<DtoPromiseRequest>(message.body())
             val round = request.round
 
             if (promised < round) {
-                println("Acceptor $name promised [Np: $promised, Na: $accepted, Va: $value]")
                 promised = round
+                Logger.log("Acceptor $name promised [Np: $promised, Na: $accepted, Va: $value]")
                 message.reply(Json.encodeToString(DtoPromiseResponse(accepted = accepted, value = value)))
             } else {
                 message.fail(
@@ -29,12 +32,11 @@ class Acceptor(val name: String): AbstractVerticle() {
             }
         }
 
-        // accept
         vertx.eventBus().consumer<String>("paxos.acceptor.$name.accept") { message ->
             val request = Json.decodeFromString<DtoAcceptRequest>(message.body())
 
             if (promised <= request.round) {
-                println("Acceptor $name accepted [N: $promised, old : [Na: $accepted, Va: $value], new : [Na: ${request.round}, Va: ${request.value}]]")
+                Logger.log("Acceptor $name accepted [N: $promised, old : [Na: $accepted, Va: $value], new : [Na: ${request.round}, Va: ${request.value}]]")
                 accepted = request.round
                 value = request.value
                 message.reply(Json.encodeToString(DtoAcceptResponse()))
