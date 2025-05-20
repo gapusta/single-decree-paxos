@@ -22,14 +22,17 @@ class Proposer(
 
     override fun start() {
         Logger.log("Init $name")
+
         vertx.setPeriodic(1000) { timerId ->
             val eb = vertx.eventBus()
             val round = GlobalRoundGenerator.round()
             val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
 
+            Logger.log("Proposer $name round started [ N : $round ]")
             majority
                 .map { acceptor ->
                     Logger.log("$name->$acceptor promise($round)")
+
                     val request = Json.encodeToString(DtoPromiseRequest(round = round))
                     eb.request<String>("paxos.acceptor.$acceptor.promise", request)
                 }
@@ -44,6 +47,7 @@ class Proposer(
                     majority
                         .map { acceptor ->
                             Logger.log("$name->$acceptor propose($round, $value)")
+
                             eb.request<String>("paxos.acceptor.$acceptor.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
                         }
                         .let { proposeFuture -> Future.join(proposeFuture) }
@@ -67,6 +71,7 @@ class Proposer(
                 }
                 .onSuccess {
                     Logger.log("Proposer $name succeeded [ N: $round, V: $value ]")
+
                     vertx.cancelTimer(timerId)
                 }
         }
