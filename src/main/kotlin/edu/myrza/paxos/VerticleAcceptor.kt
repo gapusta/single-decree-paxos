@@ -7,7 +7,7 @@ import io.vertx.core.AbstractVerticle
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-class Acceptor(val name: String): AbstractVerticle() {
+class VerticleAcceptor(val name: String): AbstractVerticle() {
 
     private var promised: Long = 0L
     private var accepted: Long = 0L

@@ -14,7 +14,7 @@ import io.vertx.core.eventbus.ReplyException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-class Proposer(
+class VerticleProposer(
     private val name: String,
     private var value: String,
     private val acceptors: Set<String>
