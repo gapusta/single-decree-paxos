@@ -21,20 +21,26 @@ class VerticleProposer(
 ): AbstractVerticle() {
 
     override fun start() {
-        Logger.log("Init $name")
+        Logger.log("Init proposer $name")
 
         vertx.setPeriodic(1000) { timerId ->
             val eb = vertx.eventBus()
             val round = GlobalRoundGenerator.round()
             val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
 
-            Logger.log("Proposer $name round started [ N : $round ]")
+            Logger.log("$name round started [ N : $round ]")
             majority
                 .map { acceptor ->
-                    Logger.log("$name->$acceptor promise($round)")
+                    Logger.log("$name is sending prepare($round) to $acceptor ")
 
-                    val request = Json.encodeToString(DtoPromiseRequest(round = round))
-                    eb.request<String>("paxos.acceptor.$acceptor.promise", request)
+                    val request = Json.encodeToString(
+                        DtoPromiseRequest(
+                            propose = name,
+                            round = round
+                        )
+                    )
+
+                    eb.request<String>("paxos.acceptor.$acceptor.prepare", request)
                 }
                 .let { Future.join(it) }
                 .compose { promisesFuture ->
@@ -46,9 +52,17 @@ class VerticleProposer(
 
                     majority
                         .map { acceptor ->
-                            Logger.log("$name->$acceptor propose($round, $value)")
+                            Logger.log("$name is sending accept($round, $value) to $acceptor")
 
-                            eb.request<String>("paxos.acceptor.$acceptor.accept", Json.encodeToString(DtoAcceptRequest(round = round, value = value)))
+                            val msg = Json.encodeToString(
+                                DtoAcceptRequest(
+                                    proposer = name,
+                                    round = round,
+                                    value = value
+                                )
+                            )
+
+                            eb.request<String>("paxos.acceptor.$acceptor.accept", msg)
                         }
                         .let { proposeFuture -> Future.join(proposeFuture) }
                 }
@@ -57,7 +71,7 @@ class VerticleProposer(
                     // automatically stops the chain unless you handle the failure with recover or onFailure
                     // and return a successful future.
                     if (it !is ReplyException || it.failureCode() != ErrorCodes.CUSTOM_ERROR) {
-                        Logger.log("Unhandled exception: ${it.message}")
+                        Logger.log("Unexpected exception: ${it.message}")
                         return@onFailure
                     }
 

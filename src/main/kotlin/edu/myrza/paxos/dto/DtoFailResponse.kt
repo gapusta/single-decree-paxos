@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class DtoFailResponse(val phase: Phase, val type: Type) {
     enum class Phase {
-        PROMISE,
+        PREPARE,
         ACCEPT
     }
     enum class Type {

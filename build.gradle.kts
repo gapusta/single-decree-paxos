@@ -1,6 +1,6 @@
 plugins {
-    kotlin("jvm") version "1.9.22"
-    kotlin("plugin.serialization") version "1.9.22"
+    kotlin("jvm") version "2.2.20"
+    kotlin("plugin.serialization") version "2.2.20"
 }
 
 group = "edu.myrza"
@@ -11,8 +11,8 @@ repositories {
 }
 
 dependencies {
-    implementation("io.vertx:vertx-core:4.5.13")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("io.vertx:vertx-core:5.0.9")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
 }
 

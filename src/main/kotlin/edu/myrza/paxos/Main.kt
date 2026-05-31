@@ -17,15 +17,15 @@ fun main() {
 
     val acceptorNames = acceptors.map { it.name }.toSet()
     val proposers = listOf(
-        VerticleProposer(name = "P1", value = "P1Value", acceptors = acceptorNames),
-        VerticleProposer(name = "P2", value = "P2Value", acceptors = acceptorNames),
-        VerticleProposer(name = "P3", value = "P3Value", acceptors = acceptorNames)
+        VerticleProposer(name = "P1", value = "P1's value", acceptors = acceptorNames),
+        VerticleProposer(name = "P2", value = "P2's value", acceptors = acceptorNames),
+        VerticleProposer(name = "P3", value = "P3's value", acceptors = acceptorNames)
     )
 
-    Future.all(
+    Future.all<Future<String>>(
         acceptors.map { vertx.deployVerticle(it) }
     ).onSuccess {
-        proposers.map { vertx.deployVerticle(it) }
+        proposers.forEach { vertx.deployVerticle(it) }
     }
 
     // shutdown handler
