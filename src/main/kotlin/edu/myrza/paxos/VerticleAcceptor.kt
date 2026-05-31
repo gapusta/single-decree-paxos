@@ -2,14 +2,15 @@ package edu.myrza.paxos
 
 import edu.myrza.paxos.dto.*
 import edu.myrza.paxos.exception.ErrorCodes
+import edu.myrza.paxos.model.Round
 import edu.myrza.paxos.util.Logger
 import io.vertx.core.AbstractVerticle
 import kotlinx.serialization.json.Json
 
 class VerticleAcceptor(val name: String): AbstractVerticle() {
 
-    private var promised: Long = 0L
-    private var accepted: Long = 0L
+    private var promised = Round(-1, -1)
+    private var accepted = Round(-1, -1)
     private var value: String? = null
 
     override fun start() {

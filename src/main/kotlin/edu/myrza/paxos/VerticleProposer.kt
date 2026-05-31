@@ -5,28 +5,35 @@ import edu.myrza.paxos.dto.DtoFailResponse
 import edu.myrza.paxos.dto.DtoPromiseRequest
 import edu.myrza.paxos.dto.DtoPromiseResponse
 import edu.myrza.paxos.exception.ErrorCodes
-import edu.myrza.paxos.util.GlobalRoundGenerator
+import edu.myrza.paxos.model.Round
 import edu.myrza.paxos.util.Logger
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.concurrent.atomic.AtomicLong
 
 class VerticleProposer(
-    private val name: String,
+    private val id: Long,
     private var value: String,
     private val acceptors: Set<String>
 ): AbstractVerticle() {
 
+    private val roundGenerator = AtomicLong(0L)
+
     override fun start() {
+        val name = "P$id"
+
         Logger.log("Init proposer $name")
 
         vertx.setPeriodic(1000) { timerId ->
             val eb = vertx.eventBus()
-            val round = GlobalRoundGenerator.round()
             val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
+            val round = Round(
+                proposerId = id,
+                round = roundGenerator.incrementAndGet()
+            )
 
             Logger.log("$name round started [ N : $round ]")
             majority
@@ -54,7 +61,7 @@ class VerticleProposer(
                         .map { acceptor ->
                             Logger.log("$name is sending accept($round, $value) to $acceptor")
 
-                            val msg = Json.encodeToString(
+                            val request = Json.encodeToString(
                                 DtoAcceptRequest(
                                     proposer = name,
                                     round = round,
@@ -62,7 +69,7 @@ class VerticleProposer(
                                 )
                             )
 
-                            eb.request<String>("paxos.acceptor.$acceptor.accept", msg)
+                            eb.request<String>("paxos.acceptor.$acceptor.accept", request)
                         }
                         .let { proposeFuture -> Future.join(proposeFuture) }
                 }
