@@ -12,6 +12,7 @@ repositories {
 
 dependencies {
     implementation("io.vertx:vertx-core:5.0.9")
+    implementation("io.vertx:vertx-lang-kotlin-coroutines:5.0.9")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
 }

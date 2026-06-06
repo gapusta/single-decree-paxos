@@ -15,9 +15,9 @@ fun main() {
 
     val acceptorNames = acceptors.map { it.name() }.toSet()
     val proposers = listOf(
-        VerticleProposer(id = 1, value = "P1's value", acceptors = acceptorNames),
-        VerticleProposer(id = 2, value = "P2's value", acceptors = acceptorNames),
-        VerticleProposer(id = 3, value = "P3's value", acceptors = acceptorNames)
+        VerticleProposer(id = 1, value = "P1-value", acceptors = acceptorNames),
+        VerticleProposer(id = 2, value = "P2-value", acceptors = acceptorNames),
+        VerticleProposer(id = 3, value = "P3-value", acceptors = acceptorNames)
     )
 
     Future.all<Future<String>>(

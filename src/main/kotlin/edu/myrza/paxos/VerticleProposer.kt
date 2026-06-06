@@ -7,10 +7,13 @@ import edu.myrza.paxos.dto.DtoPromiseResponse
 import edu.myrza.paxos.exception.ErrorCodes
 import edu.myrza.paxos.model.Round
 import edu.myrza.paxos.util.Logger
-import io.vertx.core.AbstractVerticle
-import io.vertx.core.Future
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
+import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.awaitResult
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicLong
 
@@ -18,16 +21,28 @@ class VerticleProposer(
     private val id: Long,
     private var value: String,
     private val acceptors: Set<String>
-): AbstractVerticle() {
+): CoroutineVerticle() {
 
+    private lateinit var job: Job
     private val roundGenerator = AtomicLong(0L)
 
-    override fun start() {
-        val name = "P$id"
+    override suspend fun start() {
+        job = launch { run() }
+        Logger.log("Init proposer ${name()}")
+    }
 
-        Logger.log("Init proposer $name")
+    override suspend fun stop() {
+        job.cancel()
+    }
 
-        vertx.setPeriodic(1000) { timerId ->
+    private fun name() = "P$id"
+
+    private suspend fun run() {
+        delay(1000)
+
+        val name = name()
+
+        while (true) {
             val eb = vertx.eventBus()
             val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
             val round = Round(
@@ -36,66 +51,71 @@ class VerticleProposer(
             )
 
             Logger.log("$name round started [ N : $round ]")
-            majority
-                .map { acceptor ->
-                    Logger.log("$name is sending prepare($round) to $acceptor ")
 
-                    val request = Json.encodeToString(
-                        DtoPromiseRequest(
-                            propose = name,
-                            round = round
-                        )
-                    )
+            val promises = mutableListOf<Message<String>>()
 
-                    eb.request<String>("paxos.acceptor.$acceptor.prepare", request)
+            try {
+                // 1. prepare
+                majority.forEach { acceptor ->
+                    Logger.log("$name is sending prepare($round) to $acceptor")
+
+                    val promise = awaitResult<Message<String>> {
+                        eb.request<String>(
+                            "paxos.acceptor.$acceptor.prepare",
+                            Json.encodeToString(
+                                DtoPromiseRequest(
+                                    propose = name,
+                                    round = round
+                                )
+                            )
+                        ).onComplete(it)
+                    }
+
+                    promises.add(promise)
                 }
-                .let { Future.join(it) }
-                .compose { promisesFuture ->
-                    value = promisesFuture.list<Message<String>>()
-                        .map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
-                        .filter { it.value != null }
-                        .maxByOrNull { it.accepted }
-                        ?.value ?: value
 
-                    majority
-                        .map { acceptor ->
-                            Logger.log("$name is sending accept($round, $value) to $acceptor")
+                // 2. find already accepted propose with the highest N and propose its value or propose our value
+                val value = promises.map { Json.decodeFromString<DtoPromiseResponse>(it.body()) }
+                    .filter { it.value != null }
+                    .maxByOrNull { it.accepted }
+                    ?.value ?: value
 
-                            val request = Json.encodeToString(
+                // 3. propose
+                majority.forEach { acceptor ->
+                    Logger.log("$name is sending accept($round, $value) to $acceptor")
+
+                    awaitResult<Message<String>> {
+                        eb.request<String>(
+                            "paxos.acceptor.$acceptor.accept",
+                            Json.encodeToString(
                                 DtoAcceptRequest(
                                     proposer = name,
                                     round = round,
                                     value = value
                                 )
                             )
-
-                            eb.request<String>("paxos.acceptor.$acceptor.accept", request)
-                        }
-                        .let { proposeFuture -> Future.join(proposeFuture) }
-                }
-                .onFailure {
-                    // In Vert.x, a failed Future in a chain (via compose, andThen, or similar)
-                    // automatically stops the chain unless you handle the failure with recover or onFailure
-                    // and return a successful future.
-                    if (it !is ReplyException || it.failureCode() != ErrorCodes.CUSTOM_ERROR) {
-                        Logger.log("Unexpected exception: ${it.message}")
-                        return@onFailure
-                    }
-
-                    val fail = Json.decodeFromString<DtoFailResponse>(it.message!!)
-                    when (fail.type) {
-                        DtoFailResponse.Type.PROMISED_HIGHER -> {
-                            Logger.log("$name got disrupted [ N: $round ]")
-                            // try again
-                        }
+                        ).onComplete(it)
                     }
                 }
-                .onSuccess {
-                    Logger.log("Proposer $name succeeded [ N: $round, V: $value ]")
 
-                    vertx.cancelTimer(timerId)
+                Logger.log("Proposer $name succeeded [ N: $round, V: $value ]")
+
+                break
+            } catch (ex: Throwable) {
+                if (ex !is ReplyException || ex.failureCode() != ErrorCodes.CUSTOM_ERROR) {
+                    Logger.log("Unexpected exception: ${ex.message}")
+                    break
                 }
+
+                val fail = Json.decodeFromString<DtoFailResponse>(ex.message!!)
+                when (fail.type) {
+                    DtoFailResponse.Type.PROMISED_HIGHER -> {
+                        Logger.log("$name got disrupted [ N: $round ]")
+                        // try again
+                        delay(5000)
+                    }
+                }
+            }
         }
     }
-
 }
