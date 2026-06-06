@@ -8,12 +8,12 @@ fun main() {
     val vertx = Vertx.vertx()
 
     val acceptors = listOf(
-        VerticleAcceptor(name = "A1"),
-        VerticleAcceptor(name = "A2"),
-        VerticleAcceptor(name = "A3"),
+        VerticleAcceptor(id = 1),
+        VerticleAcceptor(id = 2),
+        VerticleAcceptor(id = 3)
     )
 
-    val acceptorNames = acceptors.map { it.name }.toSet()
+    val acceptorNames = acceptors.map { it.name() }.toSet()
     val proposers = listOf(
         VerticleProposer(id = 1, value = "P1's value", acceptors = acceptorNames),
         VerticleProposer(id = 2, value = "P2's value", acceptors = acceptorNames),

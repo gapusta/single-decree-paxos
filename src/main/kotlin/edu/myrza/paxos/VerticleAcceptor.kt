@@ -7,13 +7,17 @@ import edu.myrza.paxos.util.Logger
 import io.vertx.core.AbstractVerticle
 import kotlinx.serialization.json.Json
 
-class VerticleAcceptor(val name: String): AbstractVerticle() {
+class VerticleAcceptor(val id: Long): AbstractVerticle() {
 
     private var promised = Round(-1, -1)
     private var accepted = Round(-1, -1)
     private var value: String? = null
 
+    fun name(): String = "A$id"
+
     override fun start() {
+        val name = name()
+
         Logger.log("Init acceptor $name")
 
         vertx.eventBus().consumer<String>("paxos.acceptor.$name.prepare") { message ->
