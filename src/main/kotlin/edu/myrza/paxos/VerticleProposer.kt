@@ -38,11 +38,12 @@ class VerticleProposer(
     private fun name() = "P$id"
 
     private suspend fun run() {
-        delay(1000)
 
         val name = name()
 
         while (true) {
+            delay(1000)
+
             val eb = vertx.eventBus()
             val majority = acceptors.shuffled().take(acceptors.size / 2 + 1)
             val round = Round(
@@ -112,7 +113,6 @@ class VerticleProposer(
                     DtoFailResponse.Type.PROMISED_HIGHER -> {
                         Logger.log("$name got disrupted [ N: $round ]")
                         // try again
-                        delay(5000)
                     }
                 }
             }
