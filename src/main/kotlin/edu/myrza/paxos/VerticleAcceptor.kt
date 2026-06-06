@@ -4,10 +4,10 @@ import edu.myrza.paxos.dto.*
 import edu.myrza.paxos.exception.ErrorCodes
 import edu.myrza.paxos.model.Round
 import edu.myrza.paxos.util.Logger
-import io.vertx.core.AbstractVerticle
+import io.vertx.kotlin.coroutines.CoroutineVerticle
 import kotlinx.serialization.json.Json
 
-class VerticleAcceptor(val id: Long): AbstractVerticle() {
+class VerticleAcceptor(val id: Long): CoroutineVerticle() {
 
     private var promised = Round(-1, -1)
     private var accepted = Round(-1, -1)
@@ -15,7 +15,7 @@ class VerticleAcceptor(val id: Long): AbstractVerticle() {
 
     fun name(): String = "A$id"
 
-    override fun start() {
+    override suspend fun start() {
         val name = name()
 
         Logger.log("Init acceptor $name")
