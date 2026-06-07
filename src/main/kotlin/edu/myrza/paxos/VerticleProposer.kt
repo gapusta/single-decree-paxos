@@ -11,7 +11,11 @@ import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.awaitResult
+import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -53,26 +57,25 @@ class VerticleProposer(
 
             Logger.log("$name round started [ N : $round ]")
 
-            val promises = mutableListOf<Message<String>>()
-
             try {
                 // 1. prepare
-                majority.forEach { acceptor ->
-                    Logger.log("$name is sending prepare($round) to $acceptor")
+                // coroutineScope ensures that if one request fails, all others are canceled
+                val promises = coroutineScope {
+                    majority.map { acceptor ->
+                        Logger.log("$name is sending prepare($round) to $acceptor")
 
-                    val promise = awaitResult<Message<String>> {
-                        eb.request<String>(
-                            "paxos.acceptor.$acceptor.prepare",
-                            Json.encodeToString(
-                                DtoPromiseRequest(
-                                    propose = name,
-                                    round = round
+                        async {
+                            eb.request<String>(
+                                "paxos.acceptor.$acceptor.prepare",
+                                Json.encodeToString(
+                                    DtoPromiseRequest(
+                                        propose = name,
+                                        round = round
+                                    )
                                 )
-                            )
-                        ).onComplete(it)
-                    }
-
-                    promises.add(promise)
+                            ).coAwait()
+                        }
+                    }.awaitAll() // Suspends until all async blocks complete
                 }
 
                 // 2. find already accepted propose with the highest N and propose its value or propose our value
@@ -82,21 +85,24 @@ class VerticleProposer(
                     ?.value ?: value
 
                 // 3. propose
-                majority.forEach { acceptor ->
-                    Logger.log("$name is sending accept($round, $value) to $acceptor")
+                // coroutineScope ensures that if one request fails, all others are canceled
+                coroutineScope {
+                    majority.map { acceptor ->
+                        Logger.log("$name is sending accept($round, $value) to $acceptor")
 
-                    awaitResult<Message<String>> {
-                        eb.request<String>(
-                            "paxos.acceptor.$acceptor.accept",
-                            Json.encodeToString(
-                                DtoAcceptRequest(
-                                    proposer = name,
-                                    round = round,
-                                    value = value
+                        async {
+                            eb.request<String>(
+                                "paxos.acceptor.$acceptor.accept",
+                                Json.encodeToString(
+                                    DtoAcceptRequest(
+                                        proposer = name,
+                                        round = round,
+                                        value = value
+                                    )
                                 )
-                            )
-                        ).onComplete(it)
-                    }
+                            ).coAwait()
+                        }
+                    }.awaitAll() // Suspends until all async blocks complete
                 }
 
                 Logger.log("Proposer $name succeeded [ N: $round, V: $value ]")
