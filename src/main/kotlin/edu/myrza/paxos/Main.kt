@@ -5,6 +5,10 @@ import io.vertx.core.Future
 import io.vertx.core.Vertx
 
 fun main() {
+    start()
+}
+
+fun start() {
     val vertx = Vertx.vertx()
 
     val acceptors = listOf(
