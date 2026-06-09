@@ -7,10 +7,8 @@ import edu.myrza.paxos.dto.DtoPromiseResponse
 import edu.myrza.paxos.exception.ErrorCodes
 import edu.myrza.paxos.model.Round
 import edu.myrza.paxos.util.Logger
-import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -42,7 +40,6 @@ class VerticleProposer(
     private fun name() = "P$id"
 
     private suspend fun run() {
-
         val name = name()
 
         while (true) {
