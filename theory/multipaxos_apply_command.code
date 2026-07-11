@@ -1,0 +1,117 @@
+/*
+Version of masterless Multi-paxos implementation when we
+do NOT have the optimization where we skip PROMISED or ACCEPTED slots - no "holes" happen
+and we also do not broadcast "committed" events
+*/
+
+Replica state definition:
+    replicaId = UUID.generate() // id of this node/replica
+    RSM = {} // RSM itself
+    RSM_Log = [] // replicated command log
+    last_committed_slot = -1 // the index that all the log slots from 0 to last_committed_slot inclusively are committed
+    last_applied_slot = -1 // the index of the last applied command to RSM (all the commands in slots from 0 are applied)
+    highest_known_slot = -1 // the absolute highest index the node has seen any activity for (either from client requests or messages from other nodes)
+
+Slot state definition:
+    state = [EMPTY, PROMISED, ACCEPTED, COMMITTED, APPLIED]
+    highest_promised_num - the highest proposal number this node has promised to in Phase 1 (N)
+    accepted_num - the proposal number of the value this node has accepted in Phase 2 (Na)
+    accepted_value - the actual command accepted in Phase 2.
+
+/*
+    Client write command handler
+*/
+write(client_command) {
+    current_slot = last_committed_slot + 1
+    while(true) {
+        committed_command = runPaxos(current_slot, command)
+
+        RSM_Log[slot] = committed_command
+
+        last_committed_slot = current_slot
+
+        if (current_slot > highest_known_slot) {
+            highest_known_slot = current_slot
+        }
+
+        if (committed_command == client_command) {
+            break
+        } else {
+            current_slot++
+        }
+    }
+
+    transactional {
+        slot = last_applied_slot + 1
+        while (slot <= last_committed_slot) {
+            val cmd = RSM_Log[slot]
+            RSM.apply(cmd)
+            last_applied_slot = slot
+            slot++
+        }
+    }
+
+    return RSM.currentState()
+}
+
+/*
+    Client read command handler
+*/
+read() {
+    // 1. find out latest slot that had/is having any activity in a cluster (ReadIndex protocol)
+    // all of the previously fully committed commands and some parallel commands
+    // have slot indexes <= highest_known_slot, so linearization guarantee is preserved
+    highest_known_slot = getHighestQuorumKnownSlot()
+
+    // 2. catch up to last known slot
+    current_slot = last_committed_slot + 1
+
+    while(current_slot <= highest_known_slot) {
+        committed_command = runPaxos(current_slot, NO_OP)
+
+        RSM_Log[slot] = committed_command
+
+        current_slot++
+    }
+    last_committed_slot = current_slot
+
+    // 3. apply all the new committed commands to RSM
+    transactional {
+        slot = last_applied_slot + 1
+        while (slot <= last_committed_slot) {
+            val cmd = RSM_Log[slot]
+            RSM.apply(cmd)
+            slot++
+        }
+        last_applied_slot = slot
+    }
+
+    return RSM.currentState()
+}
+
+// Runs single decree paxos for the slot, proposes the command
+runPaxos(slot, command) {
+    TODO()
+}
+
+// Gathers a quorum of nodes (a node might include itself into a quorum)
+// and asks the quorum for the highest index they have seen
+// (promised or accepted), regardless of whether they know
+// it is fully committed yet
+
+// if a node, during a read operation, asks a quorum (the node itself can be part of the quorum)
+// "What is the highest slot you have seen any activity for (Promised or Accepted)?",
+// is it actually enough to not return stale data?
+
+// Gemini: Yes, it is absolutely enough to guarantee you will not return stale data.
+// In fact, this is the exact mathematical foundation that
+// allows leaderless consensus protocols to support strict
+// linearizability (strong consistency).
+getHighestQuorumKnownSlot() {
+    TODO()
+}
+
+getHighestKnownSlot() {
+    return highest_known_slot
+}
+
