@@ -11,6 +11,7 @@ Replica state definition:
     last_committed_slot = -1 // the index that all the log slots from 0 to last_committed_slot inclusively are committed
     last_applied_slot = -1 // the index of the last applied command to RSM (all the commands in slots from 0 are applied)
     highest_known_slot = -1 // the absolute highest index the node has seen any activity for (either from client requests or messages from other nodes)
+    state_lock = {} // mutex
 
 Slot state definition:
     state = [EMPTY, PROMISED, ACCEPTED, COMMITTED, APPLIED]
@@ -23,12 +24,15 @@ Slot state definition:
 */
 write(client_command) {
     current_slot = last_committed_slot + 1
+
     while(true) {
         committed_command = runPaxos(current_slot, command)
 
-        RSM_Log[slot] = committed_command
+        RSM_Log[current_slot] = committed_command
 
-        last_committed_slot = current_slot
+        synchronized (state_lock) {
+            last_committed_slot = max(last_committed_slot, current_slot)
+        }
 
         if (current_slot > highest_known_slot) {
             highest_known_slot = current_slot
@@ -41,15 +45,7 @@ write(client_command) {
         }
     }
 
-    transactional {
-        slot = last_applied_slot + 1
-        while (slot <= last_committed_slot) {
-            val cmd = RSM_Log[slot]
-            RSM.apply(cmd)
-            last_applied_slot = slot
-            slot++
-        }
-    }
+    applyCommitted()
 
     return RSM.currentState()
 }
@@ -69,24 +65,36 @@ read() {
     while(current_slot <= highest_known_slot) {
         committed_command = runPaxos(current_slot, NO_OP)
 
-        RSM_Log[slot] = committed_command
+        RSM_Log[current_slot] = committed_command
+
+        synchronized (state_lock) {
+            last_committed_slot = max(last_committed_slot, current_slot)
+        }
 
         current_slot++
     }
-    last_committed_slot = current_slot
 
-    // 3. apply all the new committed commands to RSM
-    transactional {
-        slot = last_applied_slot + 1
-        while (slot <= last_committed_slot) {
-            val cmd = RSM_Log[slot]
-            RSM.apply(cmd)
-            slot++
-        }
-        last_applied_slot = slot
-    }
+    applyCommitted()
 
     return RSM.currentState()
+}
+
+applyCommitted() {
+    synchronized(state_lock) {
+        // apply all the new committed commands to RSM
+        current_slot = last_applied_slot + 1
+
+        while (current_slot <= last_committed_slot) {
+            val cmd = RSM_Log[current_slot]
+
+            transactional {
+                if (cmd != NO_OP) { RSM.apply(cmd) }
+                last_applied_slot = current_slot
+            }
+
+            current_slot++
+        }
+    }
 }
 
 // Runs single decree paxos for the slot, proposes the command
